@@ -1,0 +1,48 @@
+services:
+  pyload:
+    image: lscr.io/linuxserver/pyload-ng:latest
+    container_name: pyload
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Europe/Paris
+    volumes:
+      - ./data/pyload/config:/config
+      - ./data/downloads:/downloads
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  pyload-proxy:
+    build: .
+    container_name: pyload-proxy
+    depends_on:
+      - pyload
+    environment:
+      SABNZBD_API_KEY: changeme-please-rotate-this
+      PYLOAD_URL: http://pyload:8000
+      PYLOAD_API_KEY: paste-your-pyload-api-key-here
+      DOWNLOAD_DIR: /downloads
+      DEFAULT_CATEGORY: sonarr
+      PYLOAD_DEST: "1"
+      RUST_LOG: info
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Europe/Paris
+    volumes:
+      - ./data/sonarr/config:/config
+      - ./data/downloads:/downloads
+      - ./data/tv:/tv
+    ports:
+      - "8989:8989"
+    depends_on:
+      - pyload-proxy
+    restart: unless-stopped
