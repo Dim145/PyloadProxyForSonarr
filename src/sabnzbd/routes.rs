@@ -5,6 +5,7 @@ use crate::state::AppState;
 use axum::{
     Json,
     extract::{FromRequest, Multipart, Query, Request, State},
+    http::StatusCode,
     response::{IntoResponse, Response},
 };
 use serde::Deserialize;
@@ -522,4 +523,22 @@ async fn delete_value(state: &AppState, value: Option<&str>) -> Result<Response,
 
 fn extract_name(url: &str) -> String {
     url.rsplit('/').next().unwrap_or(url).to_string()
+}
+
+pub async fn health(State(state): State<Arc<AppState>>) -> Response {
+    match state.pyload.version().await {
+        Ok(v) => (
+            StatusCode::OK,
+            Json(json!({"status": "ok", "pyload_version": v})),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::warn!(error = %e, "healthcheck: pyload unreachable");
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({"status": "unhealthy"})),
+            )
+                .into_response()
+        }
+    }
 }

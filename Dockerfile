@@ -22,4 +22,7 @@ USER 1000:1000
 EXPOSE 8080
 ENV PORT=8080 RUST_LOG=info
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD ["/pyload-proxy-for-sonarr", "--healthcheck"]
+
 ENTRYPOINT ["/pyload-proxy-for-sonarr"]

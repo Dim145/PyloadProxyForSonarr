@@ -9,6 +9,10 @@ use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    if std::env::args().skip(1).any(|a| a == "--healthcheck") {
+        return run_healthcheck().await;
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .with_target(false)
@@ -36,6 +40,24 @@ async fn main() -> anyhow::Result<()> {
         .with_graceful_shutdown(shutdown_signal())
         .await?;
     Ok(())
+}
+
+async fn run_healthcheck() -> anyhow::Result<()> {
+    let port: u16 = std::env::var("PORT")
+        .unwrap_or_else(|_| "8080".into())
+        .parse()
+        .unwrap_or(8080);
+    let resp = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()?
+        .get(format!("http://127.0.0.1:{port}/health"))
+        .send()
+        .await?;
+    if resp.status().is_success() {
+        Ok(())
+    } else {
+        std::process::exit(1);
+    }
 }
 
 async fn shutdown_signal() {
