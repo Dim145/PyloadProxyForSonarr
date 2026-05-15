@@ -75,7 +75,7 @@ pub struct QueueSlot {
     pub nzo_id: String,
     pub filename: String,
     pub status: String,
-    pub category: String,
+    pub cat: String,
     pub mb: String,
     pub mbleft: String,
     pub size: String,

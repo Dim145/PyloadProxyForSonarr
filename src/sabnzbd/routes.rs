@@ -283,7 +283,7 @@ async fn build_queue(state: &AppState, params: &ApiParams) -> Result<Response, P
                 nzo_id: nzo_id(p.pid),
                 filename: p.name.clone(),
                 status: s.as_sab().into(),
-                category: params
+                cat: params
                     .cat
                     .clone()
                     .unwrap_or_else(|| state.config.default_category.clone()),
