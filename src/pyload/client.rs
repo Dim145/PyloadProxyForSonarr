@@ -57,6 +57,30 @@ pub struct ServerStatus {
     pub speed: i64,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct DownloadInfo {
+    #[serde(default)]
+    pub fid: i64,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub speed: i64,
+    #[serde(default)]
+    pub eta: i64,
+    #[serde(default)]
+    pub bleft: i64,
+    #[serde(default)]
+    pub size: i64,
+    #[serde(default)]
+    pub percent: i32,
+    #[serde(default)]
+    pub status: i64,
+    #[serde(default)]
+    pub wait_until: f64,
+    #[serde(default)]
+    pub package_id: i64,
+}
+
 impl Client {
     pub fn new(cfg: &Config) -> Result<Self, ProxyError> {
         let mut headers = HeaderMap::new();
@@ -125,6 +149,10 @@ impl Client {
     pub async fn package_data(&self, pid: i64) -> Result<Package, ProxyError> {
         self.get_json(&format!("/api/get_package_data?package_id={pid}"))
             .await
+    }
+
+    pub async fn downloads(&self) -> Result<Vec<DownloadInfo>, ProxyError> {
+        self.get_json("/api/status_downloads").await
     }
 
     pub async fn delete_packages(&self, pids: &[i64]) -> Result<(), ProxyError> {

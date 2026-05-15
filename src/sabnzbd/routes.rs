@@ -1,5 +1,5 @@
 use crate::error::ProxyError;
-use crate::pyload::{FileData, Package};
+use crate::pyload::{DownloadInfo, FileData, Package};
 use crate::sabnzbd::models::*;
 use crate::state::AppState;
 use axum::{
@@ -240,6 +240,46 @@ fn package_size(p: &Package) -> i64 {
         .unwrap_or(0)
 }
 
+fn compute_progress(
+    p: &Package,
+    dls: &[&DownloadInfo],
+    fallback_speed: i64,
+    now: f64,
+) -> (i64, i64, i64, i64) {
+    let pkg_total = package_size(p).max(0);
+    if dls.is_empty() {
+        let done = p.sizedone.unwrap_or(0).max(0).min(pkg_total);
+        return (pkg_total, done, fallback_speed, 0);
+    }
+    let live_total: i64 = dls.iter().map(|d| d.size.max(0)).sum();
+    let total = pkg_total.max(live_total);
+    let bleft: i64 = dls.iter().map(|d| d.bleft.max(0)).sum();
+    let done = (total - bleft).max(0).min(total);
+    let speed: i64 = dls.iter().map(|d| d.speed.max(0)).sum();
+    let eta = dls
+        .iter()
+        .map(|d| {
+            let wait = ((d.wait_until - now).max(0.0)) as i64;
+            d.eta.max(0).max(wait)
+        })
+        .max()
+        .unwrap_or(0);
+    (total, done, speed, eta)
+}
+
+fn format_timeleft(secs: i64) -> String {
+    let s = secs.max(0);
+    format!("{}:{:02}:{:02}", s / 3600, (s / 60) % 60, s % 60)
+}
+
+fn unix_now() -> f64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0)
+}
+
 fn format_size(bytes: i64) -> String {
     let mb = bytes as f64 / (1024.0 * 1024.0);
     if mb >= 1024.0 {
@@ -252,8 +292,10 @@ fn format_size(bytes: i64) -> String {
 async fn build_queue(state: &AppState, params: &ApiParams) -> Result<Response, ProxyError> {
     let packages = fetch_all_packages(state).await;
     let status = state.pyload.status().await.ok();
-    let speed = status.as_ref().map(|s| s.speed).unwrap_or(0);
+    let global_speed = status.as_ref().map(|s| s.speed).unwrap_or(0);
     let paused = status.as_ref().map(|s| s.pause).unwrap_or(false);
+    let downloads = state.pyload.downloads().await.unwrap_or_default();
+    let now = unix_now();
 
     let active: Vec<(&Package, PackageState)> = packages
         .iter()
@@ -267,15 +309,15 @@ async fn build_queue(state: &AppState, params: &ApiParams) -> Result<Response, P
     let slots: Vec<QueueSlot> = active
         .iter()
         .map(|(p, s)| {
-            let total = package_size(p).max(0);
-            let done = p.sizedone.unwrap_or(0).max(0).min(total);
+            let dls: Vec<&DownloadInfo> =
+                downloads.iter().filter(|d| d.package_id == p.pid).collect();
+            let (total, done, _, eta_secs) = compute_progress(p, &dls, global_speed, now);
             let left = (total - done).max(0);
             total_mb += total as f64 / (1024.0 * 1024.0);
             total_mbleft += left as f64 / (1024.0 * 1024.0);
             let percentage = if total > 0 { ((done * 100) / total) as u32 } else { 0 };
-            let timeleft = if speed > 0 && *s == PackageState::Downloading {
-                let secs = left / speed.max(1);
-                format!("{}:{:02}:{:02}", secs / 3600, (secs / 60) % 60, secs % 60)
+            let timeleft = if eta_secs > 0 && *s != PackageState::Paused {
+                format_timeleft(eta_secs)
             } else {
                 "0:00:00".into()
             };
@@ -298,6 +340,8 @@ async fn build_queue(state: &AppState, params: &ApiParams) -> Result<Response, P
             }
         })
         .collect();
+
+    let speed = downloads.iter().map(|d| d.speed).sum::<i64>().max(global_speed);
 
     let start = params.start.unwrap_or(0);
     let limit = params.limit.unwrap_or(slots.len() as u32);
